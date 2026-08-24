@@ -1,9 +1,9 @@
 # WXWarning — Web
 
-Dashboard real-time warning cuaca & bencana untuk pilot dan flight dispatcher.
-Sesuai `../PRD-v1.0.md` · kontrak API: `../openapi.yaml` · wireframe: `../wireframes-v1.0.md`.
+Real-time weather & disaster warning dashboard for pilots and flight dispatchers.
+Per `../PRD-v1.0.md` · API contract: `../openapi.yaml` · wireframes: `../wireframes-v1.0.md`.
 
-## Menjalankan
+## Running
 
 ```powershell
 cd WXWarning\web
@@ -11,47 +11,47 @@ npm install
 npm run dev
 ```
 
-Buka http://localhost:3000 → redirect ke `/dashboard`.
+Open http://localhost:3000 → redirects to `/dashboard`.
 
-## Halaman
+## Pages
 
 | Route | Status |
 |---|---|
-| `/dashboard` | ✅ **data real dari database** (gempa BMKG + USGS) |
-| `/map` | ✅ peta MapLibre + marker sample |
+| `/dashboard` | ✅ **real data from database** (BMKG + USGS earthquakes) |
+| `/map` | ✅ MapLibre map + sample markers |
 | `/alerts`, `/alerts/[id]` | stub |
 | `/airports`, `/cyclones`, `/volcanoes`, `/earthquakes` | stub |
 | `/settings`, `/admin` | stub |
-| `/api/v1/hazards` | ✅ real data + filter `?type=&severity=&active=` |
-| `/api/admin/ingest` | ✅ trigger ingest (`POST`, opsional header `x-ingest-secret`) |
-| `/api/health/db` | ✅ cek koneksi database |
+| `/api/v1/hazards` | ✅ real data + filters `?type=&severity=&active=` |
+| `/api/admin/ingest` | ✅ trigger ingest (`POST`, optional header `x-ingest-secret`) |
+| `/api/health/db` | ✅ database connection check |
 
-## Catatan implementasi peta (penting)
+## Map implementation notes (important)
 
-MapLibre GL v6 dimuat **tanpa bundler** (dynamic import runtime ke
-`public/vendor/maplibre/maplibre-gl.mjs` + `turbopackIgnore`) karena dua masalah:
+MapLibre GL v6 is loaded **without a bundler** (runtime dynamic import of
+`public/vendor/maplibre/maplibre-gl.mjs` + `turbopackIgnore`) because of two issues:
 
-1. Turbopack error pada dynamic import URL absolut ("server relative imports
+1. Turbopack error on dynamic import with absolute URL ("server relative imports
    are not implemented yet")
-2. CSS maplibre menambahkan class `maplibregl-map` (position:relative) pada
-   container yang menimpa `absolute inset-0` Tailwind → container tinggi 0px.
-   Solusi: posisi container diset via inline style, tinggi halaman via inline
+2. The maplibre CSS adds the class `maplibregl-map` (position:relative) to the
+   container, overriding Tailwind's `absolute inset-0` → container height 0px.
+   Fix: container position set via inline style, page height via inline
    `calc(100vh - 3.5rem)`.
 
-Jika upgrade maplibre, salin ulang 4 file dari `node_modules/maplibre-gl/dist/`
-ke `public/vendor/maplibre/`.
+If upgrading maplibre, copy the 4 files again from `node_modules/maplibre-gl/dist/`
+to `public/vendor/maplibre/`.
 
 ## Ingest Pipeline
 
-Adapter aktif: **BMKG gempa** (M≥5) & **USGS gempa** (M≥5.5).
-JTWC / VAAC / PVMBG_MAGMA: struktur siap, adapter menyusul.
+Active adapters: **BMKG earthquakes** (M≥5) & **USGS earthquakes** (M≥5.5).
+JTWC / VAAC / PVMBG_MAGMA: structures are ready, adapters coming next.
 
-- Trigger manual: `curl -X POST http://localhost:3000/api/admin/ingest`
-- Dedupe otomatis via `canonical_hash` (jalankan ulang = 0 new)
-- Setiap run tercatat di tabel `ingest_logs`
-- Produksi: `vercel.json` cron tiap 5 menit
+- Manual trigger: `curl -X POST http://localhost:3000/api/admin/ingest`
+- Automatic dedupe via `canonical_hash` (rerun = 0 new)
+- Every run is recorded in the `ingest_logs` table
+- Production: `vercel.json` cron every 5 minutes
 
-## Struktur
+## Structure
 
 ```
 src/
@@ -65,14 +65,14 @@ src/
 
 ## Design tokens
 
-Terdapat di `src/app/globals.css` (Tailwind v4 `@theme`):
+Defined in `src/app/globals.css` (Tailwind v4 `@theme`):
 `bg-base #0B0E13`, `bg-elevated #12161F`, severity `extreme/severe/moderate/info`,
-`text-ink`, `text-muted`, `live`. Contoh: `bg-elevated`, `text-severe`, `border-edge`.
+`text-ink`, `text-muted`, `live`. Examples: `bg-elevated`, `text-severe`, `border-edge`.
 
-## Langkah berikutnya (M1–M2 PRD)
+## Next steps (PRD M1–M2)
 
-1. ✅ Database Neon Postgres — terhubung, 12 tabel, seed selesai
-2. ✅ Ingest workers — BMKG + USGS gempa live, dedupe + logging
-3. Adapter JTWC (siklon) & PVMBG MAGMA (volcano color code)
+1. ✅ Neon Postgres database — connected, 12 tables, seeded
+2. ✅ Ingest workers — BMKG + USGS earthquakes live, dedupe + logging
+3. JTWC (cyclone) & PVMBG MAGMA (volcano color code) adapters
 4. Auth (argon2 + JWT)
 5. WebSocket/SSE stream + Web Push (VAPID keys)
