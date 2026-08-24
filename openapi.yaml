@@ -1,0 +1,770 @@
+openapi: 3.1.0
+info:
+  title: WXWarning API
+  version: 1.0.0
+  description: |
+    REST API untuk WXWarning — dashboard warning cuaca & bencana untuk pilot
+    dan flight dispatcher. Semua timestamp ISO-8601 UTC.
+    Real-time stream via WebSocket di `/ws/stream` (di luar cakupan OpenAPI).
+  contact:
+    name: WXWarning Team
+servers:
+  - url: https://wxwarning.app/api/v1
+    description: Production
+  - url: https://staging.wxwarning.app/api/v1
+    description: Staging
+
+tags:
+  - name: Auth
+  - name: Hazards
+  - name: Airports
+  - name: Cyclones
+  - name: Volcanoes
+  - name: Earthquakes
+  - name: Me
+  - name: Admin
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login, terima access + refresh token
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+            example:
+              email: dispatcher@airline.id
+              password: secret-pass-123
+      responses:
+        "200":
+          description: Sukses
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokens"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotasi refresh token
+      security: []
+      operationId: refreshToken
+      parameters:
+        - in: cookie
+          name: refresh_token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token baru
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokens"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /hazards:
+    get:
+      tags: [Hazards]
+      summary: List hazard (default aktif)
+      operationId: listHazards
+      parameters:
+        - in: query
+          name: active
+          schema: { type: boolean, default: true }
+        - in: query
+          name: type
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/HazardType"
+        - in: query
+          name: severity
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/Severity"
+        - in: query
+          name: bbox
+          description: "minLon,minLat,maxLon,maxLat (EPSG:4326)"
+          schema: { type: string, pattern: '^-?\d+(\.\d+)?(,-?\d+(\.\d+)?){3}$' }
+        - in: query
+          name: since
+          schema: { type: string, format: date-time }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Daftar hazard
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Paginated"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Hazard"
+
+  /hazards/{id}:
+    get:
+      tags: [Hazards]
+      summary: Detail hazard termasuk raw payload
+      operationId: getHazard
+      parameters:
+        - $ref: "#/components/parameters/HazardId"
+      responses:
+        "200":
+          description: Detail hazard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HazardDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /hazards/{id}/acknowledge:
+    post:
+      tags: [Hazards]
+      summary: Acknowledge alert (immutable audit log)
+      operationId: acknowledgeHazard
+      parameters:
+        - $ref: "#/components/parameters/HazardId"
+      responses:
+        "201":
+          description: Ack tercatat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Acknowledgment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Sudah diacknowledge oleh user ini
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /airports/{icao}/wx:
+    get:
+      tags: [Airports]
+      summary: METAR/TAF/SIGMET aktif untuk bandara
+      operationId: getAirportWx
+      parameters:
+        - in: path
+          name: icao
+          required: true
+          schema: { type: string, pattern: "^[A-Z]{4}$" }
+      responses:
+        "200":
+          description: Kondisi cuaca bandara
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AirportWx"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /cyclones:
+    get:
+      tags: [Cyclones]
+      summary: Daftar siklon aktif
+      operationId: listCyclones
+      parameters:
+        - in: query
+          name: active
+          schema: { type: boolean, default: true }
+        - in: query
+          name: basin
+          schema:
+            $ref: "#/components/schemas/CycloneBasin"
+      responses:
+        "200":
+          description: Daftar siklon
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CycloneSummary"
+
+  /cyclones/{id}:
+    get:
+      tags: [Cyclones]
+      summary: Detail siklon + track & forecast points
+      operationId: getCyclone
+      parameters:
+        - $ref: "#/components/parameters/HazardId"
+      responses:
+        "200":
+          description: Detail siklon
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CycloneDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /volcanoes:
+    get:
+      tags: [Volcanoes]
+      summary: Daftar gunung berapi + aviation color code
+      operationId: listVolcanoes
+      parameters:
+        - in: query
+          name: country
+          schema: { type: string, example: ID }
+        - in: query
+          name: min_color_code
+          schema:
+            $ref: "#/components/schemas/VolcanoColorCode"
+      responses:
+        "200":
+          description: Daftar gunung berapi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Volcano"
+
+  /volcanoes/{id}:
+    get:
+      tags: [Volcanoes]
+      summary: Detail gunung + VONA & ash advisory
+      operationId: getVolcano
+      parameters:
+        - $ref: "#/components/parameters/HazardId"
+      responses:
+        "200":
+          description: Detail gunung berapi
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Volcano"
+                  - type: object
+                    properties:
+                      vona_hazards:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Hazard"
+                      ash_advisories:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Hazard"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /earthquakes:
+    get:
+      tags: [Earthquakes]
+      summary: Feed gempa dengan filter
+      operationId: listEarthquakes
+      parameters:
+        - in: query
+          name: min_mag
+          schema: { type: number, minimum: 0, maximum: 10, default: 5.5 }
+        - in: query
+          name: lat
+          schema: { type: number }
+        - in: query
+          name: lon
+          schema: { type: number }
+        - in: query
+          name: radius_km
+          schema: { type: integer, minimum: 10, maximum: 2000, default: 300 }
+        - in: query
+          name: since
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Daftar gempa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Earthquake"
+
+  /me/watchlist:
+    get:
+      tags: [Me]
+      summary: Lihat watchlist saya
+      operationId: getWatchlist
+      responses:
+        "200":
+          description: Item watchlist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WatchlistItem"
+    post:
+      tags: [Me]
+      summary: Tambah item watchlist
+      operationId: addToWatchlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WatchlistItemInput"
+      responses:
+        "201":
+          description: Dibuat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WatchlistItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /me/watchlist/{itemId}:
+    delete:
+      tags: [Me]
+      summary: Hapus item watchlist
+      operationId: deleteWatchlistItem
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Terhapus
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /me/notification-rules:
+    put:
+      tags: [Me]
+      summary: Set matrix rules notifikasi
+      operationId: setNotificationRules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationRules"
+      responses:
+        "200":
+          description: Tersimpan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationRules"
+
+  /admin/sources:
+    get:
+      tags: [Admin]
+      summary: Health semua sumber ingest (admin)
+      operationId: adminListSources
+      responses:
+        "200":
+          description: Daftar sumber
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HazardSource"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/ingest-logs:
+    get:
+      tags: [Admin]
+      summary: Log ingest (admin), exportable CSV via Accept header
+      operationId: adminListIngestLogs
+      parameters:
+        - in: query
+          name: source_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: since
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+      responses:
+        "200":
+          description: Log ingest
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IngestLog"
+            text/csv:
+              schema: { type: string }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    HazardId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Unauthorized:
+      description: Tidak terautentikasi
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Role tidak cukup
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Tidak ditemukan
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Validasi gagal
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Rate limit terlampaui (100 req/menit/IP)
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          examples: ["VALIDATION_ERROR", "NOT_FOUND", "RATE_LIMITED"]
+        message:
+          type: string
+        request_id:
+          type: string
+
+    Paginated:
+      type: object
+      properties:
+        meta:
+          type: object
+          properties:
+            next_cursor:
+              type: [string, "null"]
+            server_time:
+              type: string
+              format: date-time
+
+    HazardType:
+      type: string
+      enum: [sigmet, metar_alert, cyclone, volcano, quake]
+
+    Severity:
+      type: string
+      enum: [info, moderate, severe, extreme]
+
+    HazardStatus:
+      type: string
+      enum: [ACTIVE, EXPIRED]
+
+    Hazard:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: "#/components/schemas/HazardType" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        title: { type: string }
+        area_text: { type: string }
+        geom:
+          description: GeoJSON geometry area dampak (opsional)
+        valid_from: { type: string, format: date-time }
+        valid_until: { type: string, format: date-time }
+        status: { $ref: "#/components/schemas/HazardStatus" }
+        acknowledged_by_me: { type: boolean }
+        source_name: { type: string }
+        fetched_at: { type: string, format: date-time }
+
+    HazardDetail:
+      allOf:
+        - $ref: "#/components/schemas/Hazard"
+        - type: object
+          properties:
+            raw_payload:
+              type: object
+              description: Payload asli sumber (immutable, untuk verifikasi)
+            ack_history:
+              type: array
+              items:
+                $ref: "#/components/schemas/Acknowledgment"
+
+    Acknowledgment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        hazard_id: { type: string, format: uuid }
+        user:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            display_name: { type: string }
+        acked_at: { type: string, format: date-time }
+
+    AuthTokens:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer, example: 900 }
+        user:
+          $ref: "#/components/schemas/UserPublic"
+
+    UserPublic:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        role:
+          type: string
+          enum: [pilot, dispatcher, admin]
+        locale: { type: string, enum: [id, en] }
+
+    AirportWx:
+      type: object
+      properties:
+        airport:
+          type: object
+          properties:
+            icao: { type: string }
+            iata: { type: string }
+            name: { type: string }
+            lat: { type: number }
+            lon: { type: number }
+        metar:
+          type: object
+          properties:
+            observed_at: { type: string, format: date-time }
+            raw: { type: string }
+            parsed:
+              type: object
+              additionalProperties: true
+        taf:
+          type: object
+          nullable: true
+          properties:
+            issued_at: { type: string, format: date-time }
+            raw: { type: string }
+        active_sigmets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hazard"
+        staleness_warning: { type: boolean }
+
+    CycloneBasin:
+      type: string
+      enum: [WPAC, IO, SH, ATL, EPAC, CPAC]
+
+    CycloneCategory:
+      type: string
+      enum: [TD, TS, STS, TY_C1, TY_C2, TY_C3, TY_C4, TY_C5]
+
+    CycloneSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        international_designator: { type: string, examples: ["12W"] }
+        basin: { $ref: "#/components/schemas/CycloneBasin" }
+        category: { $ref: "#/components/schemas/CycloneCategory" }
+        severity: { $ref: "#/components/schemas/Severity" }
+        current_position:
+          $ref: "#/components/schemas/CyclonePoint"
+
+    CycloneDetail:
+      allOf:
+        - $ref: "#/components/schemas/CycloneSummary"
+        - type: object
+          properties:
+            track:
+              type: array
+              items:
+                $ref: "#/components/schemas/CyclonePoint"
+            advisory_number: { type: integer }
+            sources:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string, examples: [JTWC] }
+                  url: { type: string, format: uri }
+
+    CyclonePoint:
+      type: object
+      properties:
+        valid_time: { type: string, format: date-time }
+        is_forecast: { type: boolean }
+        lat: { type: number }
+        lon: { type: number }
+        max_wind_kt: { type: integer }
+        gust_kt: { type: integer }
+        pressure_hpa: { type: integer }
+        uncertainty_radius_km: { type: integer }
+
+    VolcanoColorCode:
+      type: string
+      enum: [GREEN, YELLOW, ORANGE, RED]
+
+    Volcano:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        country: { type: string }
+        lat: { type: number }
+        lon: { type: number }
+        color_code: { $ref: "#/components/schemas/VolcanoColorCode" }
+        code_updated_at: { type: string, format: date-time }
+        watching: { type: boolean }
+
+    Earthquake:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        magnitude: { type: number }
+        depth_km: { type: number }
+        lat: { type: number }
+        lon: { type: number }
+        place: { type: string }
+        occurred_at: { type: string, format: date-time }
+        tsunami_flag: { type: boolean }
+        source: { type: string, examples: [BMKG, USGS] }
+        hazard_id: { type: string, format: uuid }
+
+    WatchlistItemInput:
+      oneOf:
+        - type: object
+          required: [type, icao]
+          properties:
+            type: { type: string, enum: [airport] }
+            icao: { type: string, pattern: "^[A-Z]{4}$" }
+        - type: object
+          required: [type, center_lat, center_lon, radius_km]
+          properties:
+            type: { type: string, enum: [area] }
+            center_lat: { type: number, minimum: -90, maximum: 90 }
+            center_lon: { type: number, minimum: -180, maximum: 180 }
+            radius_km: { type: integer, minimum: 10, maximum: 2000 }
+
+    WatchlistItem:
+      allOf:
+        - $ref: "#/components/schemas/WatchlistItemInput"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+
+    NotificationRules:
+      type: object
+      description: Matrix rule per kombinasi hazard/severity/channel
+      properties:
+        rules:
+          type: array
+          items:
+            type: object
+            properties:
+              hazard_type: { $ref: "#/components/schemas/HazardType" }
+              min_severity: { $ref: "#/components/schemas/Severity" }
+              channels:
+                type: array
+                items:
+                  type: string
+                  enum: [webpush, email]
+              enabled: { type: boolean }
+
+    HazardSource:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, examples: [BMKG, JTWC, VAAC_TOKYO, PVMBG_MAGMA, USGS] }
+        poll_interval_s: { type: integer }
+        staleness_threshold_s: { type: integer }
+        is_stale: { type: boolean }
+        enabled: { type: boolean }
+        last_success_at: { type: [string, "null"], format: date-time }
+
+    IngestLog:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        source_id: { type: string, format: uuid }
+        started_at: { type: string, format: date-time }
+        duration_ms: { type: integer }
+        items_new: { type: integer }
+        items_dupe: { type: integer }
+        error: { type: [string, "null"] }
