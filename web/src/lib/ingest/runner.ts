@@ -8,6 +8,8 @@ import { ingestJmaCyclones } from "./jma-cyclones";
 import { ingestMagmaVolcanoes } from "./magma-volcanoes";
 import { ingestVaacDarwin } from "./vaac-darwin";
 import { ingestAwcMetar } from "./awc-metar";
+import { ingestJtwcCyclones } from "./jtwc-cyclones";
+import { ingestVaacTokyo } from "./vaac-tokyo";
 
 const ADAPTERS: Record<string, IngestAdapter> = {
   USGS: ingestUsgsQuakes,
@@ -16,6 +18,8 @@ const ADAPTERS: Record<string, IngestAdapter> = {
   JMA: ingestJmaCyclones,
   VAAC_DARWIN: ingestVaacDarwin,
   AWC_METAR: ingestAwcMetar,
+  JTWC: ingestJtwcCyclones,
+  VAAC_TOKYO: ingestVaacTokyo,
 };
 
 export async function runIngest(sourceName?: string) {
