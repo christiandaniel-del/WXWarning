@@ -1,7 +1,6 @@
 # WXWarning — Web
 
 Real-time weather & disaster warning dashboard for pilots and flight dispatchers.
-Per `../PRD-v1.0.md` · API contract: `../openapi.yaml` · wireframes: `../wireframes-v1.0.md`.
 
 ## Running
 
